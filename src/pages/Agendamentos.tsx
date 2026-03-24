@@ -2,7 +2,11 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/Sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar, Clock, Plus, User, Edit, Trash2, Check, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Calendar as CalendarIcon, Clock, Plus, User, Check, X } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -35,11 +39,32 @@ const Agendamentos = () => {
     }
   ]);
 
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [novoCliente, setNovoCliente] = useState("");
+  const [novoServico, setNovoServico] = useState("");
+  const [novaData, setNovaData] = useState("");
+  const [novaHora, setNovaHora] = useState("");
+
   const handleNovoAgendamento = () => {
-    toast({
-      title: "Novo Agendamento",
-      description: "Funcionalidade em desenvolvimento",
-    });
+    if (!novoCliente || !novoServico || !novaData || !novaHora) {
+      toast({ title: "Preencha todos os campos", variant: "destructive" });
+      return;
+    }
+    const novo = {
+      id: Date.now(),
+      cliente: novoCliente,
+      servico: novoServico,
+      data: novaData,
+      hora: novaHora,
+      status: "pendente" as const,
+    };
+    setAgendamentos(prev => [...prev, novo]);
+    setDialogOpen(false);
+    setNovoCliente("");
+    setNovoServico("");
+    setNovaData("");
+    setNovaHora("");
+    toast({ title: "Agendamento criado!", description: `${novoCliente} - ${novoServico}` });
   };
 
   const handleConfirmarAgendamento = (id: number) => {
@@ -79,13 +104,53 @@ const Agendamentos = () => {
                 </p>
               </div>
               <Button 
-                onClick={handleNovoAgendamento}
+                onClick={() => setDialogOpen(true)}
                 className="bg-gradient-primary hover:opacity-90 transition-opacity"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Novo Agendamento
               </Button>
             </div>
+
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogContent className="bg-card border-border">
+                <DialogHeader>
+                  <DialogTitle>Novo Agendamento</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <Label>Cliente</Label>
+                    <Input value={novoCliente} onChange={e => setNovoCliente(e.target.value)} placeholder="Nome do cliente" />
+                  </div>
+                  <div>
+                    <Label>Serviço</Label>
+                    <Select value={novoServico} onValueChange={setNovoServico}>
+                      <SelectTrigger><SelectValue placeholder="Selecione o serviço" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Corte Masculino">Corte Masculino</SelectItem>
+                        <SelectItem value="Corte + Barba">Corte + Barba</SelectItem>
+                        <SelectItem value="Barba + Bigode">Barba + Bigode</SelectItem>
+                        <SelectItem value="Corte Infantil">Corte Infantil</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>Data</Label>
+                      <Input type="date" value={novaData} onChange={e => setNovaData(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>Hora</Label>
+                      <Input type="time" value={novaHora} onChange={e => setNovaHora(e.target.value)} />
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
+                  <Button onClick={handleNovoAgendamento} className="bg-gradient-primary">Criar Agendamento</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             <div className="grid gap-6">
               {agendamentos.map((agendamento) => (
@@ -109,7 +174,7 @@ const Agendamentos = () => {
                   <CardContent>
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       <div className="flex items-center gap-1">
-                        <Calendar className="h-4 w-4" />
+                        <CalendarIcon className="h-4 w-4" />
                         {new Date(agendamento.data).toLocaleDateString('pt-BR')}
                       </div>
                       <div className="flex items-center gap-1">
