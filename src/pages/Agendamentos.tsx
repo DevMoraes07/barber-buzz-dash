@@ -134,7 +134,7 @@ const Agendamentos = () => {
                   <CardContent>
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       <div className="flex items-center gap-1">
-                        <Calendar className="h-4 w-4" />
+                        <CalendarIcon className="h-4 w-4" />
                         {new Date(agendamento.data).toLocaleDateString('pt-BR')}
                       </div>
                       <div className="flex items-center gap-1">
