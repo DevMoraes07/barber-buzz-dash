@@ -72,7 +72,7 @@ const Perfil = () => {
 
   useEffect(() => { carregar(); }, [carregar]);
 
-  const salvarPerfil = async (campos: Record<string, unknown>) => {
+  const salvarPerfil = async (campos: TablesUpdate<"profiles">) => {
     if (!user) return false;
     const { error } = await supabase.from("profiles").update(campos).eq("id", user.id);
     if (error) {
