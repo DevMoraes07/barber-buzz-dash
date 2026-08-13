@@ -3,20 +3,55 @@ import { AppSidebar } from "@/components/Sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Calendar, Clock, DollarSign, Scissors, Search, CalendarDays } from "lucide-react";
-import { useState, useMemo } from "react";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Calendar, Clock, DollarSign, Scissors, Search, CalendarDays, Plus, Loader2 } from "lucide-react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
+
+interface Atendimento {
+  id: string;
+  cliente: string;
+  servicos: string[];
+  data: string;
+  hora: string;
+  valor: number;
+  barbeiro: string | null;
+}
 
 const Historico = () => {
-  const historico = [
-    { id: 1, cliente: "João Silva", servicos: ["Corte", "Barba"], data: "2024-08-10", hora: "14:00", valor: 45.00, barbeiro: "Carlos" },
-    { id: 2, cliente: "Pedro Santos", servicos: ["Corte Masculino"], data: "2024-08-08", hora: "16:30", valor: 25.00, barbeiro: "Miguel" },
-    { id: 3, cliente: "Carlos Lima", servicos: ["Barba", "Bigode", "Sobrancelha"], data: "2024-08-05", hora: "10:15", valor: 35.00, barbeiro: "Carlos" },
-    { id: 4, cliente: "Roberto Oliveira", servicos: ["Corte", "Barba", "Lavagem"], data: "2024-08-03", hora: "15:00", valor: 55.00, barbeiro: "Miguel" },
-  ];
-
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [historico, setHistorico] = useState<Atendimento[]>([]);
+  const [carregando, setCarregando] = useState(true);
   const [busca, setBusca] = useState("");
   const [filtroData, setFiltroData] = useState("");
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [cliente, setCliente] = useState("");
+  const [servicos, setServicos] = useState("");
+  const [data, setData] = useState("");
+  const [hora, setHora] = useState("");
+  const [valor, setValor] = useState("");
+  const [barbeiro, setBarbeiro] = useState("");
+
+  const carregar = useCallback(async () => {
+    const { data: rows, error } = await supabase
+      .from("atendimentos")
+      .select("id, cliente, servicos, data, hora, valor, barbeiro")
+      .order("data", { ascending: false });
+    if (error) {
+      toast({ title: "Erro ao carregar histórico", description: error.message, variant: "destructive" });
+    } else {
+      setHistorico((rows ?? []).map(r => ({ ...r, valor: Number(r.valor) })));
+    }
+    setCarregando(false);
+  }, [toast]);
+
+  useEffect(() => { carregar(); }, [carregar]);
 
   const filtrado = useMemo(() => {
     return historico.filter(h => {
@@ -24,9 +59,33 @@ const Historico = () => {
       const matchData = !filtroData || h.data === filtroData;
       return matchBusca && matchData;
     });
-  }, [busca, filtroData]);
+  }, [historico, busca, filtroData]);
 
   const totalFiltrado = filtrado.reduce((sum, h) => sum + h.valor, 0);
+
+  const handleRegistrar = async () => {
+    if (!user || !cliente || !data || !hora) {
+      toast({ title: "Preencha cliente, data e hora", variant: "destructive" });
+      return;
+    }
+    const { error } = await supabase.from("atendimentos").insert({
+      user_id: user.id,
+      cliente,
+      servicos: servicos.split(",").map(s => s.trim()).filter(Boolean),
+      data,
+      hora,
+      valor: Number(valor) || 0,
+      barbeiro: barbeiro || null,
+    });
+    if (error) {
+      toast({ title: "Erro ao registrar", description: error.message, variant: "destructive" });
+      return;
+    }
+    setDialogOpen(false);
+    setCliente(""); setServicos(""); setData(""); setHora(""); setValor(""); setBarbeiro("");
+    toast({ title: "Atendimento registrado!" });
+    carregar();
+  };
 
   return (
     <SidebarProvider>
@@ -39,9 +98,14 @@ const Historico = () => {
                 <h1 className="text-2xl md:text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">Histórico de Atendimentos</h1>
                 <p className="text-muted-foreground mt-1 text-sm">Visualize o histórico completo de atendimentos realizados</p>
               </div>
-              <Badge variant="outline" className="border-primary text-primary text-sm px-4 py-2">
-                Total: R$ {totalFiltrado.toFixed(2)}
-              </Badge>
+              <div className="flex items-center gap-3">
+                <Badge variant="outline" className="border-primary text-primary text-sm px-4 py-2">
+                  Total: R$ {totalFiltrado.toFixed(2)}
+                </Badge>
+                <Button onClick={() => setDialogOpen(true)} className="bg-gradient-primary hover:opacity-90">
+                  <Plus className="h-4 w-4 mr-2" /> Registrar
+                </Button>
+              </div>
             </div>
 
             {/* Filters */}
@@ -59,13 +123,37 @@ const Historico = () => {
               )}
             </div>
 
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogContent className="bg-card border-border">
+                <DialogHeader><DialogTitle>Registrar Atendimento</DialogTitle></DialogHeader>
+                <div className="space-y-4">
+                  <div><Label>Cliente</Label><Input value={cliente} onChange={e => setCliente(e.target.value)} /></div>
+                  <div><Label>Serviços (separados por vírgula)</Label><Input value={servicos} onChange={e => setServicos(e.target.value)} placeholder="Corte, Barba" /></div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><Label>Data</Label><Input type="date" value={data} onChange={e => setData(e.target.value)} /></div>
+                    <div><Label>Hora</Label><Input type="time" value={hora} onChange={e => setHora(e.target.value)} /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><Label>Valor (R$)</Label><Input type="number" step="0.01" value={valor} onChange={e => setValor(e.target.value)} /></div>
+                    <div><Label>Barbeiro</Label><Input value={barbeiro} onChange={e => setBarbeiro(e.target.value)} /></div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
+                  <Button onClick={handleRegistrar} className="bg-gradient-primary">Salvar</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
             <div className="grid gap-4">
-              {filtrado.length === 0 ? (
+              {carregando ? (
+                <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+              ) : filtrado.length === 0 ? (
                 <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                   <CardContent className="flex flex-col items-center justify-center py-12 text-center">
                     <Scissors className="h-12 w-12 text-muted-foreground/50 mb-4" />
                     <h3 className="text-lg font-medium text-muted-foreground">Nenhum atendimento encontrado</h3>
-                    <p className="text-sm text-muted-foreground/70 mt-1">Tente ajustar os filtros de busca</p>
+                    <p className="text-sm text-muted-foreground/70 mt-1">Registre um atendimento ou ajuste os filtros</p>
                   </CardContent>
                 </Card>
               ) : (
@@ -80,7 +168,7 @@ const Historico = () => {
                           <DollarSign className="h-4 w-4" /> R$ {atendimento.valor.toFixed(2)}
                         </div>
                       </div>
-                      <CardDescription>Barbeiro: {atendimento.barbeiro}</CardDescription>
+                      {atendimento.barbeiro && <CardDescription>Barbeiro: {atendimento.barbeiro}</CardDescription>}
                     </CardHeader>
                     <CardContent>
                       <div className="flex flex-wrap gap-2 mb-3">
@@ -89,7 +177,7 @@ const Historico = () => {
                         ))}
                       </div>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(atendimento.data).toLocaleDateString('pt-BR')}</div>
+                        <div className="flex items-center gap-1"><Calendar className="h-4 w-4" />{new Date(atendimento.data + "T00:00:00").toLocaleDateString('pt-BR')}</div>
                         <div className="flex items-center gap-1"><Clock className="h-4 w-4" />{atendimento.hora}</div>
                       </div>
                     </CardContent>

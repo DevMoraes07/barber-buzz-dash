@@ -6,20 +6,25 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Gift, Star, Trophy, Crown } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+
+interface PontoHistorico {
+  id: string;
+  data: string;
+  acao: string;
+  pontos: number;
+}
 
 const Fidelidade = () => {
   const { toast } = useToast();
-  const [pontos, setPontos] = useState(850);
+  const { user } = useAuth();
+  const [pontos, setPontos] = useState(0);
+  const [totalAtendimentos, setTotalAtendimentos] = useState(0);
   const [resgateAlvo, setResgateAlvo] = useState<{ nome: string; pontos: number } | null>(null);
-
-  const [historicoPontos, setHistoricoPontos] = useState([
-    { data: "2024-08-10", acao: "Corte + Barba", pontos: 50 },
-    { data: "2024-08-05", acao: "Indicação de amigo", pontos: 100 },
-    { data: "2024-08-01", acao: "Corte Masculino", pontos: 25 },
-    { data: "2024-07-28", acao: "Resgate: Desconto 20%", pontos: -200 },
-  ]);
+  const [historicoPontos, setHistoricoPontos] = useState<PontoHistorico[]>([]);
 
   const recompensas = [
     { nome: "Desconto 10%", pontos: 200 },
@@ -28,15 +33,38 @@ const Fidelidade = () => {
     { nome: "Tratamento Premium", pontos: 1500 },
   ];
 
+  const carregar = useCallback(async () => {
+    const [{ data: perfil }, { data: hist }, { count }] = await Promise.all([
+      supabase.from("profiles").select("pontos").maybeSingle(),
+      supabase.from("pontos_historico").select("id, data, acao, pontos").order("data", { ascending: false }),
+      supabase.from("atendimentos").select("id", { count: "exact", head: true }),
+    ]);
+    setPontos(perfil?.pontos ?? 0);
+    setHistoricoPontos(hist ?? []);
+    setTotalAtendimentos(count ?? 0);
+  }, []);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
   const proximo = 1000;
   const nivel = pontos >= 1000 ? "Diamante" : pontos >= 500 ? "Ouro" : pontos >= 100 ? "Prata" : "Bronze";
 
-  const handleResgate = () => {
-    if (!resgateAlvo) return;
-    setPontos(p => p - resgateAlvo.pontos);
-    setHistoricoPontos(prev => [{ data: new Date().toISOString().split('T')[0], acao: `Resgate: ${resgateAlvo.nome}`, pontos: -resgateAlvo.pontos }, ...prev]);
+  const handleResgate = async () => {
+    if (!resgateAlvo || !user) return;
+    const novoSaldo = pontos - resgateAlvo.pontos;
+    const { error } = await supabase.from("profiles").update({ pontos: novoSaldo }).eq("id", user.id);
+    if (error) {
+      toast({ title: "Erro no resgate", description: error.message, variant: "destructive" });
+      return;
+    }
+    await supabase.from("pontos_historico").insert({
+      user_id: user.id,
+      acao: `Resgate: ${resgateAlvo.nome}`,
+      pontos: -resgateAlvo.pontos,
+    });
     toast({ title: "Recompensa resgatada!", description: `${resgateAlvo.nome} aplicado com sucesso.` });
     setResgateAlvo(null);
+    carregar();
   };
 
   return (
@@ -66,8 +94,8 @@ const Fidelidade = () => {
               <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                 <CardHeader className="text-center pb-2">
                   <Trophy className="h-8 w-8 text-primary mx-auto mb-2" />
-                  <CardTitle>12 Cortes</CardTitle>
-                  <CardDescription>Este mês</CardDescription>
+                  <CardTitle>{totalAtendimentos} Atendimentos</CardTitle>
+                  <CardDescription>Registrados</CardDescription>
                 </CardHeader>
                 <CardContent className="text-center">
                   <div className="text-xl font-bold text-primary mb-1">Próxima meta</div>
@@ -82,7 +110,7 @@ const Fidelidade = () => {
                   <CardDescription>Para próximo nível</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <Progress value={(pontos / proximo) * 100} className="mb-2" />
+                  <Progress value={Math.min(100, (pontos / proximo) * 100)} className="mb-2" />
                   <p className="text-sm text-center text-muted-foreground">{Math.max(0, proximo - pontos)} pontos restantes</p>
                 </CardContent>
               </Card>
@@ -117,11 +145,13 @@ const Fidelidade = () => {
               <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                 <CardHeader><CardTitle>Histórico de Pontos</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
-                  {historicoPontos.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border/30">
+                  {historicoPontos.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Nenhuma movimentação de pontos ainda.</p>
+                  ) : historicoPontos.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between p-3 rounded-lg border border-border/30">
                       <div>
                         <h4 className="font-medium">{item.acao}</h4>
-                        <p className="text-sm text-muted-foreground">{new Date(item.data).toLocaleDateString('pt-BR')}</p>
+                        <p className="text-sm text-muted-foreground">{new Date(item.data + "T00:00:00").toLocaleDateString('pt-BR')}</p>
                       </div>
                       <div className={`font-bold ${item.pontos > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                         {item.pontos > 0 ? '+' : ''}{item.pontos}

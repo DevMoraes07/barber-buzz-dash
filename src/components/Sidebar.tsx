@@ -1,18 +1,19 @@
-import { useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
-import { 
-  Calendar, 
-  Clock, 
-  User, 
-  Star, 
-  Scissors, 
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import {
+  Calendar,
+  Clock,
+  User,
+  Star,
+  Scissors,
   Home,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  LogOut,
 } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -22,6 +23,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
 
 const menuItems = [
   { title: "Dashboard", url: "/", icon: Home },
@@ -34,9 +36,16 @@ const menuItems = [
 export function AppSidebar() {
   const { open, setOpen } = useSidebar();
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, signOut } = useAuth();
   const currentPath = location.pathname;
 
   const isActive = (path: string) => currentPath === path;
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/auth", { replace: true });
+  };
 
   return (
     <Sidebar className="border-sidebar-border">
@@ -89,6 +98,16 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+
+      <SidebarFooter className="border-t border-sidebar-border">
+        {open && (
+          <p className="px-2 pt-2 text-xs text-muted-foreground truncate">{user?.email}</p>
+        )}
+        <Button variant="ghost" onClick={handleSignOut} className="justify-start w-full">
+          <LogOut className="h-4 w-4" />
+          {open && <span className="ml-2">Sair</span>}
+        </Button>
+      </SidebarFooter>
     </Sidebar>
   );
 }

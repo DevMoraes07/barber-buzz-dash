@@ -7,12 +7,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Calendar as CalendarIcon, Clock, Plus, User, Check, X, Search, CalendarDays } from "lucide-react";
-import { useState, useMemo } from "react";
+import { Calendar as CalendarIcon, Clock, Plus, User, Check, X, Search, CalendarDays, Loader2 } from "lucide-react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Agendamento {
-  id: number;
+  id: string;
   cliente: string;
   servico: string;
   data: string;
@@ -22,20 +24,34 @@ interface Agendamento {
 
 const Agendamentos = () => {
   const { toast } = useToast();
-  const [agendamentos, setAgendamentos] = useState<Agendamento[]>([
-    { id: 1, cliente: "João Silva", servico: "Corte + Barba", data: "2024-08-15", hora: "14:00", status: "confirmado" },
-    { id: 2, cliente: "Pedro Santos", servico: "Corte Masculino", data: "2024-08-15", hora: "15:30", status: "pendente" },
-    { id: 3, cliente: "Carlos Lima", servico: "Barba + Bigode", data: "2024-08-16", hora: "10:00", status: "confirmado" },
-  ]);
+  const { user } = useAuth();
+  const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
+  const [carregando, setCarregando] = useState(true);
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [cancelId, setCancelId] = useState<number | null>(null);
+  const [cancelId, setCancelId] = useState<string | null>(null);
   const [novoCliente, setNovoCliente] = useState("");
   const [novoServico, setNovoServico] = useState("");
   const [novaData, setNovaData] = useState("");
   const [novaHora, setNovaHora] = useState("");
   const [busca, setBusca] = useState("");
   const [filtroData, setFiltroData] = useState("");
+
+  const carregar = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("agendamentos")
+      .select("id, cliente, servico, data, hora, status")
+      .order("data", { ascending: true })
+      .order("hora", { ascending: true });
+    if (error) {
+      toast({ title: "Erro ao carregar agendamentos", description: error.message, variant: "destructive" });
+    } else {
+      setAgendamentos(data ?? []);
+    }
+    setCarregando(false);
+  }, [toast]);
+
+  useEffect(() => { carregar(); }, [carregar]);
 
   const agendamentosFiltrados = useMemo(() => {
     return agendamentos.filter(ag => {
@@ -45,24 +61,47 @@ const Agendamentos = () => {
     });
   }, [agendamentos, busca, filtroData]);
 
-  const handleNovoAgendamento = () => {
+  const handleNovoAgendamento = async () => {
     if (!novoCliente || !novoServico || !novaData || !novaHora) {
       toast({ title: "Preencha todos os campos", variant: "destructive" });
       return;
     }
-    setAgendamentos(prev => [...prev, { id: Date.now(), cliente: novoCliente, servico: novoServico, data: novaData, hora: novaHora, status: "pendente" }]);
+    if (!user) return;
+    const { error } = await supabase.from("agendamentos").insert({
+      user_id: user.id,
+      cliente: novoCliente,
+      servico: novoServico,
+      data: novaData,
+      hora: novaHora,
+      status: "pendente",
+    });
+    if (error) {
+      toast({ title: "Erro ao criar", description: error.message, variant: "destructive" });
+      return;
+    }
     setDialogOpen(false);
     setNovoCliente(""); setNovoServico(""); setNovaData(""); setNovaHora("");
     toast({ title: "Agendamento criado!", description: `${novoCliente} - ${novoServico}` });
+    carregar();
   };
 
-  const handleConfirmar = (id: number) => {
+  const handleConfirmar = async (id: string) => {
+    const { error } = await supabase.from("agendamentos").update({ status: "confirmado" }).eq("id", id);
+    if (error) {
+      toast({ title: "Erro", description: error.message, variant: "destructive" });
+      return;
+    }
     setAgendamentos(prev => prev.map(ag => ag.id === id ? { ...ag, status: "confirmado" } : ag));
     toast({ title: "Agendamento Confirmado" });
   };
 
-  const handleCancelar = () => {
-    if (cancelId === null) return;
+  const handleCancelar = async () => {
+    if (!cancelId) return;
+    const { error } = await supabase.from("agendamentos").delete().eq("id", cancelId);
+    if (error) {
+      toast({ title: "Erro", description: error.message, variant: "destructive" });
+      return;
+    }
     setAgendamentos(prev => prev.filter(ag => ag.id !== cancelId));
     setCancelId(null);
     toast({ title: "Agendamento Cancelado", variant: "destructive" });
@@ -77,7 +116,7 @@ const Agendamentos = () => {
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl md:text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">Agendamentos</h1>
-                <p className="text-muted-foreground mt-1 text-sm">Gerencie todos os agendamentos da barbearia</p>
+                <p className="text-muted-foreground mt-1 text-sm">Gerencie todos os agendamentos da sua barbearia</p>
               </div>
               <Button onClick={() => setDialogOpen(true)} className="bg-gradient-primary hover:opacity-90 transition-opacity w-full sm:w-auto">
                 <Plus className="h-4 w-4 mr-2" /> Novo Agendamento
@@ -145,7 +184,9 @@ const Agendamentos = () => {
 
             {/* List */}
             <div className="grid gap-4">
-              {agendamentosFiltrados.length === 0 ? (
+              {carregando ? (
+                <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+              ) : agendamentosFiltrados.length === 0 ? (
                 <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                   <CardContent className="flex flex-col items-center justify-center py-12 text-center">
                     <CalendarIcon className="h-12 w-12 text-muted-foreground/50 mb-4" />
@@ -171,7 +212,7 @@ const Agendamentos = () => {
                     </CardHeader>
                     <CardContent>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-1"><CalendarIcon className="h-4 w-4" />{new Date(ag.data).toLocaleDateString('pt-BR')}</div>
+                        <div className="flex items-center gap-1"><CalendarIcon className="h-4 w-4" />{new Date(ag.data + "T00:00:00").toLocaleDateString('pt-BR')}</div>
                         <div className="flex items-center gap-1"><Clock className="h-4 w-4" />{ag.hora}</div>
                       </div>
                       <div className="flex gap-2 pt-3">
