@@ -4,62 +4,81 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import heroImage from "@/assets/barbershop-hero.jpg";
 import { MonthlyChart } from "./MonthlyChart";
-import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
+import { useEffect, useState, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
-const mockAppointments = [
-  { id: 1, service: "Corte + Barba", time: "14:00", date: "Hoje", barber: "Carlos" },
-  { id: 2, service: "Corte Clássico", time: "16:30", date: "Amanhã", barber: "Pedro" },
-  { id: 3, service: "Barba + Bigode", time: "10:00", date: "Sex, 16/08", barber: "João" },
-];
+interface Agendamento {
+  id: string;
+  cliente: string;
+  servico: string;
+  data: string;
+  hora: string;
+  status: string;
+}
 
-const mockHistory = [
-  { id: 1, service: "Corte + Barba", date: "10/08/2024", barber: "Carlos", price: "R$ 45,00" },
-  { id: 2, service: "Corte Clássico", date: "28/07/2024", barber: "Pedro", price: "R$ 35,00" },
-  { id: 3, service: "Barba Completa", date: "15/07/2024", barber: "João", price: "R$ 25,00" },
-];
+interface Atendimento {
+  id: string;
+  cliente: string;
+  servicos: string[];
+  data: string;
+  valor: number;
+}
 
 export function Dashboard() {
-  const { toast } = useToast();
   const navigate = useNavigate();
+  const [nome, setNome] = useState("");
+  const [pontos, setPontos] = useState(0);
+  const [proximos, setProximos] = useState<Agendamento[]>([]);
+  const [recentes, setRecentes] = useState<Atendimento[]>([]);
+  const [totalMes, setTotalMes] = useState(0);
+  const [faturamentoMes, setFaturamentoMes] = useState(0);
 
-  const handleAgendarAgora = () => {
-    navigate('/agendamentos');
-    toast({
-      title: "Redirecionando",
-      description: "Abrindo página de agendamentos",
-    });
-  };
+  const carregar = useCallback(async () => {
+    const hoje = new Date().toISOString().split("T")[0];
+    const inicioMes = hoje.slice(0, 8) + "01";
 
-  const handleVerTodosAgendamentos = () => {
-    navigate('/agendamentos');
-  };
+    const [{ data: perfil }, { data: ags }, { data: ats }, { data: mes }] = await Promise.all([
+      supabase.from("profiles").select("nome, pontos").maybeSingle(),
+      supabase.from("agendamentos").select("id, cliente, servico, data, hora, status").gte("data", hoje).order("data").order("hora").limit(3),
+      supabase.from("atendimentos").select("id, cliente, servicos, data, valor").order("data", { ascending: false }).limit(3),
+      supabase.from("atendimentos").select("valor").gte("data", inicioMes),
+    ]);
 
-  const handleVerHistoricoCompleto = () => {
-    navigate('/historico');
-  };
+    setNome(perfil?.nome ?? "");
+    setPontos(perfil?.pontos ?? 0);
+    setProximos(ags ?? []);
+    setRecentes((ats ?? []).map(a => ({ ...a, valor: Number(a.valor) })));
+    setTotalMes(mes?.length ?? 0);
+    setFaturamentoMes((mes ?? []).reduce((s, a) => s + Number(a.valor), 0));
+  }, []);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  const proximo = proximos[0];
+  const meta = 300;
 
   return (
     <div className="p-6 space-y-6 min-h-screen bg-gradient-dark">
       {/* Hero Section */}
       <div className="relative overflow-hidden rounded-xl h-64 bg-gradient-card shadow-elegant">
-        <img 
-          src={heroImage} 
-          alt="Barbershop Interior" 
+        <img
+          src={heroImage}
+          alt="Interior de barbearia"
           className="absolute inset-0 w-full h-full object-cover opacity-30"
         />
         <div className="relative z-10 p-8 h-full flex flex-col justify-center">
           <div className="max-w-2xl">
             <h1 className="text-4xl font-bold mb-4 bg-gradient-primary bg-clip-text text-transparent">
-              Bem-vindo de volta!
+              {nome ? `Bem-vindo, ${nome.split(" ")[0]}!` : "Bem-vindo de volta!"}
             </h1>
             <p className="text-lg text-muted-foreground mb-6">
-              Gerencie seus agendamentos e acompanhe seu histórico de serviços
+              Gerencie os agendamentos e o histórico da sua barbearia
             </p>
-            <Button 
-              onClick={handleAgendarAgora}
-              variant="default" 
-              size="lg" 
+            <Button
+              onClick={() => navigate("/agendamentos")}
+              variant="default"
+              size="lg"
               className="bg-gradient-primary hover:shadow-glow transition-all duration-300"
             >
               <Calendar className="mr-2 h-5 w-5" />
@@ -77,19 +96,23 @@ export function Dashboard() {
             <Calendar className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">Hoje 14:00</div>
-            <p className="text-xs text-muted-foreground">Corte + Barba com Carlos</p>
+            <div className="text-2xl font-bold text-primary">
+              {proximo ? `${new Date(proximo.data + "T00:00:00").toLocaleDateString("pt-BR")} ${proximo.hora}` : "—"}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {proximo ? `${proximo.servico} · ${proximo.cliente}` : "Nenhum agendamento futuro"}
+            </p>
           </CardContent>
         </Card>
 
         <Card className="bg-gradient-card border-border hover:shadow-glow transition-all duration-300 animate-fade-in">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Serviços Este Mês</CardTitle>
+            <CardTitle className="text-sm font-medium">Atendimentos Este Mês</CardTitle>
             <Scissors className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">3</div>
-            <p className="text-xs text-muted-foreground">+2 comparado ao mês passado</p>
+            <div className="text-2xl font-bold text-primary">{totalMes}</div>
+            <p className="text-xs text-muted-foreground">registrados no histórico</p>
           </CardContent>
         </Card>
 
@@ -99,26 +122,25 @@ export function Dashboard() {
             <Star className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">247</div>
-            <p className="text-xs text-muted-foreground">53 pontos até o próximo prêmio</p>
+            <div className="text-2xl font-bold text-primary">{pontos}</div>
+            <p className="text-xs text-muted-foreground">{Math.max(0, meta - pontos)} pontos até o próximo prêmio</p>
           </CardContent>
         </Card>
 
         <Card className="bg-gradient-card border-border hover:shadow-glow transition-all duration-300 animate-fade-in">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Economia Total</CardTitle>
+            <CardTitle className="text-sm font-medium">Faturamento do Mês</CardTitle>
             <TrendingUp className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">R$ 125</div>
-            <p className="text-xs text-muted-foreground">Com descontos de fidelidade</p>
+            <div className="text-2xl font-bold text-primary">R$ {faturamentoMes.toFixed(2)}</div>
+            <p className="text-xs text-muted-foreground">soma dos atendimentos do mês</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Próximos Agendamentos */}
         <Card className="bg-gradient-card border-border shadow-elegant">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -128,22 +150,22 @@ export function Dashboard() {
             <CardDescription>Seus compromissos nos próximos dias</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {mockAppointments.map((appointment) => (
-              <div key={appointment.id} className="flex items-center justify-between p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors">
+            {proximos.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhum agendamento futuro.</p>
+            ) : proximos.map((a) => (
+              <div key={a.id} className="flex items-center justify-between p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors">
                 <div className="flex-1">
-                  <div className="font-medium text-foreground">{appointment.service}</div>
+                  <div className="font-medium text-foreground">{a.servico}</div>
                   <div className="text-sm text-muted-foreground">
-                    {appointment.date} às {appointment.time} - {appointment.barber}
+                    {new Date(a.data + "T00:00:00").toLocaleDateString("pt-BR")} às {a.hora} · {a.cliente}
                   </div>
                 </div>
-                <Badge variant="outline" className="border-primary text-primary">
-                  {appointment.date === "Hoje" ? "Hoje" : "Agendado"}
-                </Badge>
+                <Badge variant="outline" className="border-primary text-primary">{a.status}</Badge>
               </div>
             ))}
-            <Button 
-              onClick={handleVerTodosAgendamentos}
-              variant="outline" 
+            <Button
+              onClick={() => navigate("/agendamentos")}
+              variant="outline"
               className="w-full mt-4 border-primary text-primary hover:bg-primary hover:text-primary-foreground"
             >
               Ver Todos os Agendamentos
@@ -151,7 +173,6 @@ export function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Histórico Recente */}
         <Card className="bg-gradient-card border-border shadow-elegant">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -161,23 +182,24 @@ export function Dashboard() {
             <CardDescription>Seus últimos serviços realizados</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {mockHistory.map((service) => (
-              <div key={service.id} className="flex items-center justify-between p-4 rounded-lg bg-secondary/50">
+            {recentes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhum atendimento registrado ainda.</p>
+            ) : recentes.map((s) => (
+              <div key={s.id} className="flex items-center justify-between p-4 rounded-lg bg-secondary/50">
                 <div className="flex-1">
-                  <div className="font-medium text-foreground">{service.service}</div>
+                  <div className="font-medium text-foreground">{s.servicos.join(", ") || "Atendimento"}</div>
                   <div className="text-sm text-muted-foreground">
-                    {service.date} - {service.barber}
+                    {new Date(s.data + "T00:00:00").toLocaleDateString("pt-BR")} · {s.cliente}
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="font-semibold text-primary">{service.price}</div>
-                  <div className="text-xs text-muted-foreground">+10 pontos</div>
+                  <div className="font-semibold text-primary">R$ {s.valor.toFixed(2)}</div>
                 </div>
               </div>
             ))}
-            <Button 
-              onClick={handleVerHistoricoCompleto}
-              variant="outline" 
+            <Button
+              onClick={() => navigate("/historico")}
+              variant="outline"
               className="w-full mt-4 border-primary text-primary hover:bg-primary hover:text-primary-foreground"
             >
               Ver Histórico Completo
@@ -199,24 +221,24 @@ export function Dashboard() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Progresso até o próximo prêmio</span>
-              <span className="text-sm text-muted-foreground">247/300 pontos</span>
+              <span className="text-sm text-muted-foreground">{pontos}/{meta} pontos</span>
             </div>
             <div className="w-full bg-secondary rounded-full h-3">
-              <div 
-                className="bg-gradient-primary h-3 rounded-full transition-all duration-500 animate-glow-pulse" 
-                style={{ width: '82%' }}
+              <div
+                className="bg-gradient-primary h-3 rounded-full transition-all duration-500"
+                style={{ width: `${Math.min(100, (pontos / meta) * 100)}%` }}
               ></div>
             </div>
             <div className="grid grid-cols-3 gap-4 pt-4">
-              <div className="text-center p-3 rounded-lg bg-secondary/50">
+              <div className={`text-center p-3 rounded-lg ${pontos < 100 ? "bg-primary/20 border border-primary" : "bg-secondary/50"}`}>
                 <div className="text-lg font-bold text-primary">Novato</div>
                 <div className="text-xs text-muted-foreground">0-99 pontos</div>
               </div>
-              <div className="text-center p-3 rounded-lg bg-primary/20 border border-primary">
+              <div className={`text-center p-3 rounded-lg ${pontos >= 100 && pontos < 300 ? "bg-primary/20 border border-primary" : "bg-secondary/50"}`}>
                 <div className="text-lg font-bold text-primary">Regular</div>
                 <div className="text-xs text-muted-foreground">100-299 pontos</div>
               </div>
-              <div className="text-center p-3 rounded-lg bg-secondary/50">
+              <div className={`text-center p-3 rounded-lg ${pontos >= 300 ? "bg-primary/20 border border-primary" : "bg-secondary/50"}`}>
                 <div className="text-lg font-bold text-primary">VIP</div>
                 <div className="text-xs text-muted-foreground">300+ pontos</div>
               </div>
