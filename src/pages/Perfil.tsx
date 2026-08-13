@@ -12,6 +12,7 @@ import { User, Calendar, Edit, Save, Camera, Loader2 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/useAuth";
 
 const todosServicos = ["Corte Tradicional", "Corte Moderno", "Barba Completa", "Barba Simples", "Tratamento Premium", "Lavagem", "Sobrancelha", "Bigode"];
